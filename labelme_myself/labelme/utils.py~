@@ -1,0 +1,100 @@
+import base64
+try:
+    import io
+except ImportError:
+    import io as io
+
+import matplotlib.pyplot as plt
+import numpy as np
+import PIL.Image
+import PIL.ImageDraw
+import scipy.misc
+import skimage.color
+
+#Modify labelcolormap depend on CamVid class-11
+labelcolormap = np.array([[128,128,128],[0,128,192],[192,192,128],[128,64,128],[0,0,192],[128,128,0],[192,128,128],[64,64,128],[64,0,128],[64,64,0],[0,128,192],[0,0,0]],dtype='float32') / 255
+
+
+def img_b64_to_array(img_b64):
+    f = io.BytesIO()
+    f.write(base64.b64decode(img_b64))
+    img_arr = np.array(PIL.Image.open(f))
+    return img_arr
+
+
+def polygons_to_mask(img_shape, polygons):
+    mask = np.zeros(img_shape[:2], dtype=np.uint8)
+    mask = PIL.Image.fromarray(mask)
+    xy = list(map(tuple, polygons))
+    PIL.ImageDraw.Draw(mask).polygon(xy=xy, outline=1, fill=1)
+    mask = np.array(mask, dtype=bool)
+    return mask
+
+
+def draw_label(label, img, label_names, colormap=None):
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0,
+                        wspace=0, hspace=0)
+    plt.margins(0, 0)
+    plt.gca().xaxis.set_major_locator(plt.NullLocator())
+    plt.gca().yaxis.set_major_locator(plt.NullLocator())
+
+    if colormap is None:
+#        colormap = labelcolormap(len(label_names))
+#modify colormap
+        N = len(label_names)
+        colormap = labelcolormap[:N]
+
+    label_viz = skimage.color.label2rgb(
+        label, colors=colormap[1:], bg_label=11, bg_color=colormap[-1])
+#modify bg_label from 0 to 11,bg_color to the last element of colormap
+    plt.imshow(label_viz)
+    plt.axis('off')
+
+    plt_handlers = []
+    plt_titles = []
+    for label_value, label_name in enumerate(label_names):
+        fc = colormap[label_value]
+        p = plt.Rectangle((0, 0), 1, 1, fc=fc)
+        plt_handlers.append(p)
+        plt_titles.append(label_name)
+    plt.legend(plt_handlers, plt_titles, loc='lower right', framealpha=.5)
+
+    f = io.BytesIO()
+    plt.savefig(f, bbox_inches='tight', pad_inches=0)
+    plt.cla()
+    plt.close()
+
+    out = np.array(PIL.Image.open(f))[:, :, :3]
+    out = scipy.misc.imresize(out, img.shape[:2])
+    return out
+
+
+def labelme_shapes_to_label(img_shape, shapes):
+    all_labelname_index = {'Sky':0, 'Building':1, 'Column_Pole':2, 'Road':3, 'Sidewalk':4, 'Tree':5, 'SignSymbol':6, 'Fence':7, 'Car':8, 'Pedestrain':9, 'Bicyclist':10, 'Void':11}
+# new make void dict label_name_to_val
+    label_name_to_val = {}
+#    lbl = np.zeros(img_shape[:2], dtype=np.int32)
+    lbl = np.zeros(img_shape[:2], dtype=np.uint8)
+    for shape in sorted(shapes, key=lambda x: x['label']):
+        polygons = shape['points']
+        label_name = shape['label']
+#        if label_name in label_name_to_val:
+        if label_name in all_labelname_index:
+            label_value = all_labelname_index[label_name]
+#        else:
+#            label_value = len(label_name_to_val)
+            label_name_to_val[label_name] = label_value
+        mask = polygons_to_mask(img_shape[:2], polygons)
+        lbl[mask] = label_value
+
+    lbl_names = [None] * (max(all_labelname_index.values()) + 1)
+#    for label_name, label_value in label_name_to_val.items():
+#        lbl_names[label_value] = label_name
+
+# sort the dict label_name_to_val as the value, from small to large, make dict become tuple list, such as[tupel1,tuple2,...]
+    tuple_list_label_name_to_value = sorted(label_name_to_val.items(), key=lambda v: v[1])
+    M = len(label_name_to_val)
+    for i in range(M):
+        key = tuple_list_label_name_to_value[i][0]
+        lbl_names[i] = key        
+    return lbl, lbl_names
